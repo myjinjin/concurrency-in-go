@@ -118,3 +118,80 @@ func main() {
 ```
 
 - `WaitGroup`은 동시성 카운터와 같다. `Add`를 통해 원하는 값을 추가하고, `Done`을 통해 1을 감소시킨다. `Wait`을 호출하여 카운터가 0이 될 때까지 블록한다.
+
+# 고루틴 & 클로저(Goroutines & Closures)
+
+- 고루틴(Goroutine)은 Go 언어에서 제공하는 경량 쓰레드(lightweight thread)이다. 고루틴은 운영체제의 쓰레드나 프로세스와는 달리 Go 런타임(runtime)에 의해 관리되며, 여러 고루틴은 하나의 운영체제 쓰레드에서 동작할 수 있다. 고루틴은 매우 적은 메모리를 사용하고 생성 및 관리가 간단하기 때문에 많은 수의 고루틴을 동시에 실행할 수 있다.
+- 클로저(Closure)는 함수와 그 함수가 선언될 때의 환경(lexical environment)을 함께 저장하는 개념이다. 이는 함수가 다른 함수 내부에서 정의되고, 해당 함수가 외부 변수를 캡처하여 사용할 때 발생한다. 클로저는 외부 변수를 기억하고 이후에도 그 변수에 접근할 수 있도록 해준다. 이는 함수를 반환하는 함수, 함수를 인자로 받는 함수 등에서 유용하게 활용된다.
+
+```go
+func main() {
+	var wg sync.WaitGroup
+
+	incr := func(wg *sync.WaitGroup) {
+		var i int // function의 로컬 변수
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			i++ // 고루틴 안에서 function의 로컬 변수에 접근
+			fmt.Printf("value of i: %v\n", i)
+		}()
+		fmt.Println("return from function")
+	}
+
+	incr(&wg)
+	wg.Wait()
+	fmt.Println("done..")
+}
+// Output
+// return from function
+// value of i: 1
+// done..
+```
+
+- function이 먼저 끝났지만, 고루틴은 여전히 function의 로컬 변수에 접근할 수 있다!
+- 보통은 function이 리턴되면, 로컬 변수는 스코프를 벗어난다.
+- 그러나 여기서 런타임은 로컬 변수 i에 대한 참조가 여전히 고루틴에 의해 유지되고 있다!
+- 영리한 런타임...!!
+- 해당 값을 캡쳐해서 스택에서 힙으로 이동시킨다.
+- 인클로저 함수가 리턴된 후에도 고루틴이 변수에 대한 접근을 계속할 수 있도록 한다!
+
+```go
+func main() {
+	var wg sync.WaitGroup
+
+	for i := 1; i <= 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fmt.Println(i)
+		}()
+	}
+	wg.Wait()
+}
+// Output
+// 4
+// 4
+// 4
+```
+
+```go
+func main() {
+	var wg sync.WaitGroup
+
+	for i := 1; i <= 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			fmt.Println(idx)
+		}(i)
+	}
+	wg.Wait()
+}
+// Output
+// 3
+// 1
+// 2
+```
+
+- 고루틴으로 특정 값을 계산하고 싶다면, 고루틴의 입력값으로 전달해줘야 한다!
