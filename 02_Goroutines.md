@@ -54,3 +54,67 @@ Go에서 동시성은 Communicating Sequential Processes(CSP)에 대해 Tony Hoa
 - OS 스레드의 스택 사이즈인 8MB에 비해 고루틴의 스택 사이즈는 2KB로 매우 작다.
 - 사용자 공간에서 발생하기 때문에 컨텍스트 전환 비용이 매우 적다. 고루틴은 저장할 상태가 매우 적다.
 - 동일한 머신에서 수십만 개의 고루틴을 생성할 수 있다.
+
+# WaitGroups
+
+## 이 프로그램에서 가능한 출력값은?
+
+```go
+func main() {
+  var data int
+
+  // 메인 루틴과 동시에 실행되는 goroutine
+  // 메인 루틴이 data의 값을 확인하기 전에 고루틴이 생성되고 실행된다는 보장이 없다!
+  go func() { 
+    data++
+  }()
+
+  // 메인 루틴은 data가 0인지 확인하고 출력한다
+  if data == 0 {
+    fmt.Printf("the value is %v\n", data)
+  }
+}
+```
+
+| Output | Execution sequence |
+| --- | --- |
+| 아무 것도 출력되지 않음 | Line 8, 12 | 
+| the value is 0 | Line 12, 13 |
+| the value is 1 | Line 12, 8, 13 |
+
+## Race Condition
+
+- 동시성을 관리할 때, race condition을 고려해야 한다!
+- race condition은 원하는 결과를 얻기 위해 두 가지 이상의 작업을 올바른 순서로 실행해야 할 때 발생한다.
+- 대부분의 경우 개발자들은 프로그램이 코드화된 순서대로 실행된다고 생각한다.
+- 동시 프로그램에서는 그렇지 않다.
+- 위 코드에서는 메인 루틴이 data의 값을 확인하기 전에 고루틴이 생성되고 실행된다는 보장이 없다!
+- 고루틴은 메인 루틴에서 비동기식으로 실행된다.
+- 메인 루틴과 고루틴이 실행할 순서는 결정적이지 않다.
+
+## 프로그램에 결정론 도입하기
+
+메인 루틴이 data 값을 확인하기 전에, 고루틴이 실행될 때까지 기다리도록 할 수 있을까?
+
+## WaitGroup
+
+- Go는 **fork and join**이라는 논리적 동시성 모델을 따른다.
+
+![01-goroutines-fork-and-join.png](./images/01-goroutines-fork-and-join.png)
+
+- 메인이 고루틴을 기다리지 않으면 고루틴이 실행될 기회를 얻기 전에 프로그램이 종료될 가능성이 매우 높다.
+- join point를 만들기 위해 `sync.WaitGroup`을 사용하여 메인 루틴을 블록(block)한다.
+
+```go
+  var wg sync.WaitGroup
+  wg.Add(1) // Add(생성할 고루틴 수)
+
+  go func() {
+    defer wg.Done() // 고루틴 클로저 내부에서 Done() 호출 -> 고루틴이 빠져나가고 있음을 나타낸다 (defer: 함수의 모든 종료 포인트에서 호출되는게 보장됨)
+    // ...
+  }()
+
+  wg.Wait() // Wait() - 모든 고루틴이 종료될 때까지 메인 루틴을 블록한다.
+```
+
+- `WaitGroup`은 동시성 카운터와 같다. `Add`를 통해 원하는 값을 추가하고, `Done`을 통해 1을 감소시킨다. `Wait`을 호출하여 카운터가 0이 될 때까지 블록한다.
