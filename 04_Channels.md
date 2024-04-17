@@ -123,3 +123,11 @@ ch := make(chan Type, capacity)
 수신 고루틴은 버퍼가 빌 때까지 블로킹 없이 값을 받을 수 있다. 버퍼가 비게 되면 수신 고루틴은 블락된다.
 
 버퍼 채널은 인메모리 FIFO 큐이므로 먼저 전송되는 요소가 먼저 읽힌다.
+
+# 채널 방향(Channel Directions)
+
+채널을 함수 파라미터로 사용할 경우, 채널이 수신용인지 송신용인지 정할 수 있다. 이 특성은 프로그램의 타입 안전성(type safety)을 높여준다.
+
+```go
+func pong(in <-chan string, out chan<- string) {} // <-chan은 수신용, chan<-은 송신용
+```
