@@ -31,3 +31,17 @@ balance += amount
 
 - `sync.Mutex`: 공유 자원에 독점적인 접근을 제공한다.
 - `sync.RWMutex`: 여러 고루틴이 동시에 읽기를 수행할 수 있도록 허용하지만, 쓰기 작업이 이루어지는 동안에는 동시 읽기가 차단된다.
+
+# Atomic
+
+## sync/atomic
+
+- atomic은 메모리에서 로우 레벨 원자 연산을 수행하기 위해 사용된다. 다른 동기화 유틸리티에서도 사용된다.
+- 잠금이 없는 작업이다.
+- 카운터 원자적 연산에 사용된다.
+
+```go
+atomic.AddUint64(&ops, 1)
+vaule := atomic.LoadUint64(&ops) // concurrent safe
+```
+
