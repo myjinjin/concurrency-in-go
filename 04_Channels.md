@@ -131,3 +131,49 @@ ch := make(chan Type, capacity)
 ```go
 func pong(in <-chan string, out chan<- string) {} // <-chan은 수신용, chan<-은 송신용
 ```
+
+# 채널 기본 값(Default value)
+
+채널이 선언될 때, 기본값은 `nil`이다.
+
+```go
+var ch chan interface{}
+```
+
+따라서 내장 함수 `make`를 사용하여 메모리를 할당해줘야 한다.
+
+`nil`인 채널에 읽기/쓰기를 하면 영원히 블로킹 상태가 된다.
+
+```go
+var ch chan interface{}
+<-ch                // blocks forever
+ch <- struct{}{}  // blocks forever
+```
+
+`nil`인 채널을 close 시도를 하면 패닉이 일어난다.
+
+```go
+var ch chan interface{}
+close(ch)   // panic!
+```
+
+데드락과 패닉을 피하는 것은 중요하다!
+
+# Ownership - Channels
+
+```go
+	owner := func() <-chan int {
+		ch := make(chan int) // 채널 생성
+		go func() {
+			defer close(ch) // 채널 닫기
+			for i := 0; i < 5; i++ {
+				ch <- i // 채널에 쓰기
+			}
+		}()
+		return ch // 채널 리턴
+	}
+```
+
+- 채널 소유자는 채널을 인스턴스화하고, 쓰고, 닫는 고루틴이다.
+- 채널 사용자는 채널에 대한 읽기 전용 보기만 제공한다.
+- 따라서 채널의 소유권을 설정하면 데드락과 패닉을 피할 수 있으며, nil 채널에 쓰기, nil 채널 닫기 등과 같은 시나리오를 피할 수 있다. 
