@@ -45,3 +45,167 @@ atomic.AddUint64(&ops, 1)
 vaule := atomic.LoadUint64(&ops) // concurrent safe
 ```
 
+# sync.Cond
+ 
+- 조건 변수는 동기화 메커니즘 중 하나이다.
+- 조건 변수는 특정 조건을 기다리는 컨테이너이다.
+
+## 어떻게 하면 고루틴이 이벤트가 발생하거나 어떤 조건이 발생할 때까지 기다리게 할 수 있을까? 
+
+e.g.) 조건이 될 때까지 반복문 안에서 대기한다.
+
+  ```go
+  var sharedRsc = make(map[string]string) // 고루틴 간 공유될 맵
+  go func() {
+    defer wg.Done()
+    mu.Lock() // 잠금 획득
+    for len(sharedRsc) == 0 { // 공유맵이 비어 있을 때 반복
+      mu.Unlock() // 잠금 해제
+      time.Sleep(100 * time.Millisecond)
+      mu.Lock() // 잠금 획득
+    }
+
+    // Do processing...
+    fmt.Println(sharedRsc["rsc"])
+    mu.Unlock() // 잠금 해제
+  }()
+  ```
+
+  - 여기서 추가로 필요한 것:
+    - 대기 중에 고루틴을 정지할 수 있는 방법이 필요하다.
+    - 정지된 고루틴에게 특정한 이벤트가 일어났다는 것을 알리는 어떤 방법이 필요하다.
+  - 채널을 통해서 해결할 수는 없나?
+    - 채널을 사용하여 수신시 고루틴을 블락할 수 있다.
+    - 이벤트 발생을 나타내기 위해 송신 고루틴을 사용할 수 있다.
+    - 하지만 여러 조건으로 대기 중인 고루틴이 여러 개 있다면 어떨까?
+
+## sync.Cond
+
+```go
+var c *sync.Cond // 조건 변수
+```
+
+- 조건 변수는 `sync.Cond` 타입이다.
+- 생성자 메서드인 `sync.NewCond()`를 사용하여 조건 변수를 생성하고, 입력으로 `sync.Locker` 인터페이스(일반적으로 sync.Mutex)를 사용한다. 이는 조건 변수가 동시성 안전한 방식으로 고루틴 간의 조정을 용이하게 할 수 있게 해준다.
+
+```go
+m := sync.Mutex{}
+c := sync.NewCond(&m)
+```
+
+- `sync.Cond` 패키지는 3개의 메서드를 포함한다.
+  - `c.Wait()`
+  - `c.Signal()` 
+  - `c.Broadcast()`
+
+## c.Wait()
+
+```go
+c.L.Lock()
+for !condition {
+  c.Wait()
+}
+// make use of condition ...
+c.L.Unlock()
+```
+
+- 호출 스레드의 실행을 중지한다.
+- 고루틴을 정지하기 전에 자동으로 잠금(`c.L`)을 해제한다.
+- Broadcast 또는 Signal이 깨우지 않으면 Wait은 리턴하지 않는다.
+- 깨면 다시 잠금(`c.L`)을 획득한다.
+- Wait이 처음 재개될 때, `c.L`이 잠겨있지 않기 때문에 호출자는 일반적으로 Wait이 리턴할 때 조건이 true라고 가정할 수 없다. 대신 호출자는 반복문에서 대기해야한다.
+
+## c.Signal()
+
+```go
+func (c *Cond) Signal()
+```
+
+
+```go
+// G2: shareRsc가 채워질 때까지 기다려야 하는 고루틴
+mu := sync.Mutex{}
+c := sync.NewCond(&mu)
+
+var shareRsc = make(map[string]string)
+
+go func() {
+  defer wg.Done()
+  c.L.Lock()
+  for len(sharedRsc) == 0 {
+    c.Wait() /////////// WAIT!
+  }
+  // Do processing..
+  fmt.Println(sharedRsc["rsc"])
+  c.L.Unlock()
+}()
+```
+
+```go
+// G1
+go func() {
+  defer wg.Done()
+  c.L.Lock()
+  sharedRsc["rsc"] = "foo"
+  c.Signal() // SIGNAL !!!!!
+  c.L.Unlock()
+}()
+```
+
+- Signal은 조건이 되면 대기하고 있던 고루틴 하나를 깨운다.
+- Signal은 가장 오래 기다린 고루틴을 찾아내서 그 고루틴에게 알린다.
+- 이 호출 중에 호출자가 잠금(`c.L`)을 유지하는 것은 허용되지만 필수는 아니다.
+
+## c.Broadcast()
+
+```go
+func (c *Cond) Broadcast()
+```
+
+- Broadcast는 조건이 되면 대기하고 있던 모든 고루틴을 께워준다.
+- 이 호출 중에 호출자가 잠금(`c.L`)을 유지하는 것은 허용되지만 필수는 아니다.
+
+```go
+var sharedRcs = make(map[string]string)
+
+// G2
+go func() {
+  defer wg.Done()
+  c.L.Lock()
+  for len(sharedRsc) < 1 {
+    c.Wait()  ////// WAIT
+  }
+  // Do processing
+  fmt.Println(sharedRsc["rsc1"])
+  c.L.Unlock()
+}()
+
+// G3
+go func() {
+  defer wg.Done()
+  c.L.Lock()
+  for len(sharedRsc) < 2 {
+    c.Wait()  ////// WAIT
+  }
+  // Do processing
+  fmt.Println(sharedRsc["rsc2"])
+  c.L.Unlock()
+}()
+
+// G1
+go func() {
+  defer wg.Done()
+  c.L.Lock()
+  sharedRsc["rsc1"] = "foo"
+  sharedRsc["rsc2"] = "bar"
+  c.Broadcast()  ////// Broadcast
+  c.L.Unlock()
+}()
+```
+
+## 결론
+
+- 조건 변수는 고루틴 실행의 동기화를 위해 사용된다.
+- Wait은 고루틴 실행을 일시정지한다.
+- Signal은 조건 c를 기다리는 고루틴 하나를 깨운다.
+- Broadcast는 조건 c를 기다리는 모든 고루틴을 깨운다.
