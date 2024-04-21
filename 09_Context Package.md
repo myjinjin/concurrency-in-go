@@ -312,3 +312,74 @@ func main() {
 선택적 파라미터를 함수에 전달하지 않는다. 요청 범위 데이터에 대해서만 컨텍스트 값을 사용해야 한다.
 
 함수는 빈 컨텍스트 값을 사용해도 논리를 실행할 수 있어야 한다.
+
+# HTTP Serer Timeouts with Context Package
+
+## HTTP Server Timeouts
+
+서버를 인터넷에 노출할 때는 시스템 자원을 아끼고 DDoS 공격으로부터 보호하기 위해 타임아웃 설정이 중요하다. 또한, 각 연결을 처리하기 위해 따로 돌아가는 고루틴을 만들 수 있다. 그러나 파일 디스크립터는 제한되어 있다. 각 클라이언트 연결은 네트워크 연결을 위한 파일 디스크립터를 사용한다. 악의적인 사용자가 시스템에서 허용된 파일 디스크립터 수만큼 연결을 시작하면 서버는 파일 디스크립터가 부족해지고 새로운 연결을 수락할 수 없다. 결과적으로 accept 에러가 발생한다.
+
+```bash
+http: Accept error: accept tcp [::]:80: accept: too many open files; retrying in 1s.
+```
+
+## net/http Timeouts
+
+- `http.server`에 의해 노출되는 4개의 주요 타임아웃이 있다.
+  - Read Timeout
+  - Read Header Timeout
+  - Write Timeout
+  - Idle Timeout
+
+![05-http-timeout.svg](./images/05-http-timeout.svg)
+
+### Read Timeout
+
+Read Timeout은 연결이 승인된 시점부터 요청 본문을 완전히 읽는 시점까지의 시간을 포함한다.
+
+### Read Header Timeout
+
+Read Header Timeout은 요청 헤더를 읽는 데 허용되는 시간이다.
+
+### Write Timeout
+
+Write Timeout은 일반적으로 Request Header Read의 끝부터 Response Write의 끝까지의 시간을 포함한다. 연결이 https인 경우 Write Timeout에는 TLS 핸드셰이크의 일부로 작성된 패킷도 포함된다. 또한 여기에는 요청 헤더와 요청 본문 읽기도 포함된다.
+
+### Idle Timeout
+
+Idle Timeout은 연결 유지(keep-alive)가 활성화된 경우 다음 요청을 기다리는 최대 시간이다.
+
+## `http.Server`를 사용하여 Timeout 명시적으로 설정하기
+
+```go
+srv := &http.Server{
+    ReadTimeout:        1 * time.Second,
+    ReadHeaderTimeout:  1 * time.Second,
+    WriteTimeout:       1 * time.Second,
+    IdleTimeout:        30 * time.Second,
+    Handler:            serveMux,
+}
+```
+
+신뢰할 수 없는 클라이언트와 네트워크를 처리할 때 이러한 타임아웃을 설정하여 클라이언트가 느리게 쓰거나 읽음으로써 연결을 유지하지 못하도록 해야 한다.
+
+핸들러 기능이 완료되는 데 걸리는 시간도 조절해야 한다.
+
+앞서 살펴본 타임아웃은 네트워크 연결 수준에서 연결 데드라인을 설정할 수 있는 수단을 제공한다. 그러나 HTTP 핸들러 함수는 이러한 타임아웃을 인식하지 못한다. 결과적으로 타이머가 만료된 후에도 리소스를 소모하면서 완료될 때까지 실행된다.
+
+## http.TimeoutHandler()
+
+- `net/http` 패키지는 `TimeoutHandler()`를 제공한다.
+  ```go
+  srv := http.Server{
+    Addr:           "localhost:8000",
+    WriteTimeout:   2 * time.Second,
+    Handler:        http.TimeoutHandler(http.HandlerFunc(slowHandler), 1 * time.Second, "Timeout!\n"),
+  }
+  ```
+- TimeoutHandler는 주어진 타임아웃으로 입력 핸들러를 실행하는 핸들러를 반환한다.
+- 입력 핸들러가 타임아웃보다 오래 실행되면 핸들러는 클라이언트에 503 Service Unavailable 에러 및 HTML 에러 메시지를 보낸다.
+
+```bash
+$ time curl -i localhost:8000
+```

@@ -2,4 +2,7 @@ module github.com/myjinijn/concurrency-in-go
 
 go 1.20
 
-require golang.org/x/net v0.24.0
+require (
+	github.com/lib/pq v1.10.9
+	golang.org/x/net v0.24.0
+)
